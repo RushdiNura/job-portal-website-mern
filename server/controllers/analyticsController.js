@@ -3,6 +3,7 @@ import Job from "../models/Job.js";
 import Application from "../models/Application.js";
 import Interview from "../models/Interview.js";
 import JobEvent from "../models/JobEvent.js";
+import TalentPoolEntry from "../models/TalentPoolEntry.js";
 
 // @desc  Real, database-derived analytics for the logged-in employer
 // @route GET /api/analytics/employer
@@ -18,6 +19,8 @@ export const getEmployerAnalytics = asyncHandler(async (req, res) => {
     hiredCount,
     jobsWithCounts,
     viewEvents,
+    screeningAgg,
+    talentPoolSize,
   ] = await Promise.all([
     Job.countDocuments({ employer: employerId, status: "open" }),
     Application.countDocuments({ employer: employerId }),
@@ -29,10 +32,23 @@ export const getEmployerAnalytics = asyncHandler(async (req, res) => {
     Application.countDocuments({ employer: employerId, status: "Hired" }),
     Job.find({ employer: employerId }).select("title applicantsCount views").sort({ applicantsCount: -1 }).limit(10),
     JobEvent.countDocuments({ employer: employerId, type: "job_viewed" }),
+    Application.aggregate([
+      { $match: { employer: employerId, "screening.score": { $ne: null } } },
+      {
+        $group: {
+          _id: null,
+          avgScore: { $avg: "$screening.score" },
+          strongMatches: { $sum: { $cond: [{ $gte: ["$screening.score", 75] }, 1, 0] } },
+          total: { $sum: 1 },
+        },
+      },
+    ]),
+    TalentPoolEntry.countDocuments({ employer: employerId }),
   ]);
 
   const statusMap = Object.fromEntries(statusBreakdown.map((s) => [s._id, s.count]));
   const conversionRate = viewEvents > 0 ? Number(((totalApplications / viewEvents) * 100).toFixed(1)) : 0;
+  const screening = screeningAgg[0] || { avgScore: null, strongMatches: 0, total: 0 };
 
   res.json({
     success: true,
@@ -52,6 +68,12 @@ export const getEmployerAnalytics = asyncHandler(async (req, res) => {
         applicants: j.applicantsCount,
         views: j.views,
       })),
+      screening: {
+        avgScore: screening.avgScore !== null ? Math.round(screening.avgScore) : null,
+        strongMatches: screening.strongMatches,
+        totalScreened: screening.total,
+      },
+      talentPoolSize,
     },
   });
 });

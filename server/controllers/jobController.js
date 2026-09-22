@@ -13,7 +13,7 @@ export const getJobs = asyncHandler(async (req, res) => {
     location,
     type,
     experience,
-    remote,
+    remote, 
     salaryMin,
     salaryMax,
     category,

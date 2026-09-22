@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import JobCard from "../components/JobCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
+import Modal from "../components/Modal.jsx";
 import { TextSkeleton, JobCardSkeleton } from "../components/Skeleton.jsx";
 
 const TABS = [
@@ -26,6 +27,8 @@ export default function SeekerDashboard() {
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingRecs, setLoadingRecs] = useState(true);
+  const [withdrawTarget, setWithdrawTarget] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -73,13 +76,22 @@ export default function SeekerDashboard() {
     }
   };
 
-  const withdrawApplication = async (applicationId) => {
+  const withdrawApplication = (applicationId) => {
+    setWithdrawTarget(applications.find((a) => a._id === applicationId));
+  };
+
+  const confirmWithdraw = async () => {
+    const applicationId = withdrawTarget._id;
+    setWithdrawing(true);
     try {
       await api.put(`/applications/${applicationId}/withdraw`);
       setApplications((prev) => prev.map((a) => (a._id === applicationId ? { ...a, status: "Withdrawn" } : a)));
       toast.success("Application withdrawn");
+      setWithdrawTarget(null);
     } catch (err) {
       toast.error(getErrorMessage(err));
+    } finally {
+      setWithdrawing(false);
     }
   };
 
@@ -261,6 +273,24 @@ export default function SeekerDashboard() {
           ))}
         </div>
       )}
+
+      <Modal
+        open={!!withdrawTarget}
+        onClose={() => setWithdrawTarget(null)}
+        title="Withdraw this application?"
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setWithdrawTarget(null)}>Cancel</button>
+            <button className="btn-danger" onClick={confirmWithdraw} disabled={withdrawing}>
+              {withdrawing ? "Withdrawing..." : "Withdraw application"}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          You're about to withdraw your application for <strong>{withdrawTarget?.job?.title}</strong>{withdrawTarget?.job?.company?.name ? ` at ${withdrawTarget.job.company.name}` : ""}. This can't be undone — you'd need to apply again if you change your mind.
+        </p>
+      </Modal>
     </div>
   );
 }

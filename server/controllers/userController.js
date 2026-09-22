@@ -7,7 +7,10 @@ import User from "../models/User.js";
 export const updateProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
 
-  const fields = ["name", "phone", "location", "headline", "skills", "avatarUrl"];
+  const fields = [
+    "name", "phone", "location", "headline", "skills", "avatarUrl",
+    "discoverable", "experienceLevel", "availability",
+  ];
   fields.forEach((f) => {
     if (req.body[f] !== undefined) user[f] = req.body[f];
   });

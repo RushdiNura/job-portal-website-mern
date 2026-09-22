@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
   FiPlus, FiUsers, FiBriefcase, FiEye, FiEdit2, FiTrash2, FiDownload,
-  FiMessageSquare, FiCalendar, FiBarChart2, FiTrendingUp,
+  FiMessageSquare, FiCalendar, FiBarChart2, FiTrendingUp, FiZap, FiRefreshCw, FiColumns, FiList,
 } from "react-icons/fi";
 import api, { getErrorMessage } from "../services/api.js";
 import StatusBadge from "../components/StatusBadge.jsx";
@@ -18,6 +18,67 @@ const emptyJobForm = {
 };
 
 const STATUS_OPTIONS = ["Applied", "Under Review", "Shortlisted", "Interview Scheduled", "Offer", "Hired", "Rejected"];
+const PIPELINE_STAGES = ["Applied", "Under Review", "Shortlisted", "Interview Scheduled", "Offer", "Hired"];
+
+const scoreColor = (score) => {
+  if (score == null) return "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400";
+  if (score >= 75) return "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400";
+  if (score >= 50) return "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400";
+  return "bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400";
+};
+
+function ScreeningBadge({ screening, onRescreen, rescreening }) {
+  const [open, setOpen] = useState(false);
+  if (!screening || screening.score == null) {
+    return (
+      <button onClick={onRescreen} disabled={rescreening} className="btn-secondary text-xs" title="Run AI screening">
+        <FiZap size={12} /> {rescreening ? "Screening..." : "Screen"}
+      </button>
+    );
+  }
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${scoreColor(screening.score)}`}
+      >
+        <FiZap size={12} /> {screening.score}/100 match
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-2 w-72 card p-4 shadow-lg animate-fadeIn">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-900 dark:text-white">
+              {screening.aiGenerated ? "AI Screening Summary" : "Algorithmic Match Summary"}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onRescreen(); }}
+              disabled={rescreening}
+              className="text-slate-400 hover:text-primary-600 dark:hover:text-primary-400"
+              title="Re-run screening"
+            >
+              <FiRefreshCw size={13} className={rescreening ? "animate-spin" : ""} />
+            </button>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-300 mb-2">{screening.summary}</p>
+          {screening.matchedSkills?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-1.5">
+              {screening.matchedSkills.map((s) => (
+                <span key={s} className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 text-[10px] font-medium">{s}</span>
+              ))}
+            </div>
+          )}
+          {screening.missingSkills?.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {screening.missingSkills.map((s) => (
+                <span key={s} className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-medium">{s} (missing)</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function EmployerDashboard() {
   const navigate = useNavigate();
@@ -38,6 +99,11 @@ export default function EmployerDashboard() {
   const [scheduleTarget, setScheduleTarget] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({ scheduledAt: "", durationMinutes: 30, type: "Video", notes: "" });
   const [scheduling, setScheduling] = useState(false);
+
+  const [applicantView, setApplicantView] = useState("pipeline");
+  const [sortByScore, setSortByScore] = useState(false);
+  const [rescreeningId, setRescreeningId] = useState(null);
+  const [draggedId, setDraggedId] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -169,6 +235,30 @@ export default function EmployerDashboard() {
     }
   };
 
+  const rescreenApplicant = async (applicationId) => {
+    setRescreeningId(applicationId);
+    try {
+      const { data } = await api.post(`/applications/${applicationId}/rescreen`);
+      setApplicants((prev) => prev.map((a) => (a._id === applicationId ? { ...a, screening: data.application.screening } : a)));
+      toast.success("Screening updated");
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setRescreeningId(null);
+    }
+  };
+
+  const handleDrop = (status) => {
+    if (!draggedId) return;
+    const app = applicants.find((a) => a._id === draggedId);
+    if (app && app.status !== status) updateStatus(draggedId, status);
+    setDraggedId(null);
+  };
+
+  const sortedApplicants = sortByScore
+    ? [...applicants].sort((a, b) => (b.screening?.score ?? -1) - (a.screening?.score ?? -1))
+    : applicants;
+
   const submitSchedule = async () => {
     if (!scheduleForm.scheduledAt) {
       toast.error("Pick a date and time");
@@ -198,6 +288,7 @@ export default function EmployerDashboard() {
     ? [
         { label: "Active jobs", value: analytics.activeJobs, icon: FiBriefcase },
         { label: "Total applicants", value: analytics.totalApplications, icon: FiUsers },
+        { label: "Avg. AI match", value: analytics.screening?.avgScore != null ? `${analytics.screening.avgScore}/100` : "—", icon: FiZap },
         { label: "Interviews", value: analytics.interviews, icon: FiCalendar },
         { label: "Hires", value: analytics.hires, icon: FiTrendingUp },
       ]
@@ -215,7 +306,7 @@ export default function EmployerDashboard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
         {stats.map((s) => (
           <div key={s.label} className="card p-5 flex items-center gap-4">
             <div className="w-11 h-11 rounded-lg bg-primary-50 dark:bg-primary-950 text-primary-600 dark:text-primary-400 flex items-center justify-center shrink-0">
@@ -277,34 +368,125 @@ export default function EmployerDashboard() {
         applicants.length === 0 ? (
           <EmptyState icon={FiUsers} title="No applicants yet" description="Applicants will show up here once candidates apply to your jobs." />
         ) : (
-          <div className="space-y-3">
-            {applicants.map((app) => (
-              <div key={app._id} className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">{app.applicant?.name}</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Applied for {app.job?.title}</p>
-                  {app.applicant?.headline && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{app.applicant.headline}</p>}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button onClick={() => messageApplicant(app._id)} className="btn-secondary" title="Message applicant">
-                    <FiMessageSquare size={14} />
-                  </button>
-                  <button onClick={() => setScheduleTarget(app)} className="btn-secondary" title="Schedule interview">
-                    <FiCalendar size={14} />
-                  </button>
-                  <button onClick={() => downloadResume(app._id, app.applicant?.name + "-resume")} className="btn-secondary">
-                    <FiDownload size={14} /> Resume
-                  </button>
-                  <select
-                    className="input py-2 text-sm w-auto"
-                    value={app.status}
-                    onChange={(e) => updateStatus(app._id, e.target.value)}
-                  >
-                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
+                <button
+                  onClick={() => setApplicantView("pipeline")}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    applicantView === "pipeline" ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  <FiColumns size={13} /> Pipeline
+                </button>
+                <button
+                  onClick={() => setApplicantView("list")}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    applicantView === "list" ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm" : "text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  <FiList size={13} /> List
+                </button>
+              </div>
+              {applicantView === "list" && (
+                <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <input type="checkbox" className="rounded border-slate-300 text-primary-600" checked={sortByScore} onChange={(e) => setSortByScore(e.target.checked)} />
+                  Sort by AI match score
+                </label>
+              )}
+            </div>
+
+            {applicantView === "pipeline" ? (
+              <div>
+                <p className="sm:hidden text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 rounded-lg px-3 py-2 mb-3">
+                  Dragging cards works best with a mouse. On touch devices, switch to List view to change an applicant's stage.
+                </p>
+                <div className="flex gap-4 overflow-x-auto pb-4">
+                {PIPELINE_STAGES.map((stage) => {
+                  const stageApps = applicants.filter((a) => a.status === stage);
+                  return (
+                    <div
+                      key={stage}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDrop(stage)}
+                      className="flex-shrink-0 w-72 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 p-3"
+                    >
+                      <div className="flex items-center justify-between mb-3 px-1">
+                        <h4 className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">{stage}</h4>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">{stageApps.length}</span>
+                      </div>
+                      <div className="space-y-2 min-h-[60px]">
+                        {stageApps.map((app) => (
+                          <div
+                            key={app._id}
+                            draggable
+                            onDragStart={() => setDraggedId(app._id)}
+                            className="card p-3 cursor-grab active:cursor-grabbing hover:shadow-card-hover transition-shadow"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{app.applicant?.name}</p>
+                              {app.screening?.score != null && (
+                                <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${scoreColor(app.screening.score)}`}>
+                                  {app.screening.score}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{app.job?.title}</p>
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <button onClick={() => messageApplicant(app._id)} className="p-1.5 rounded text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950" title="Message" aria-label="Message applicant">
+                                <FiMessageSquare size={12} />
+                              </button>
+                              <button onClick={() => setScheduleTarget(app)} className="p-1.5 rounded text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950" title="Schedule interview" aria-label="Schedule interview">
+                                <FiCalendar size={12} />
+                              </button>
+                              <button onClick={() => downloadResume(app._id, app.applicant?.name + "-resume")} className="p-1.5 rounded text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950" title="Download resume" aria-label="Download resume">
+                                <FiDownload size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
                 </div>
               </div>
-            ))}
+            ) : (
+              <div className="space-y-3">
+                {sortedApplicants.map((app) => (
+                  <div key={app._id} className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-white">{app.applicant?.name}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Applied for {app.job?.title}</p>
+                      {app.applicant?.headline && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{app.applicant.headline}</p>}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <ScreeningBadge
+                        screening={app.screening}
+                        onRescreen={() => rescreenApplicant(app._id)}
+                        rescreening={rescreeningId === app._id}
+                      />
+                      <button onClick={() => messageApplicant(app._id)} className="btn-secondary" title="Message applicant">
+                        <FiMessageSquare size={14} />
+                      </button>
+                      <button onClick={() => setScheduleTarget(app)} className="btn-secondary" title="Schedule interview">
+                        <FiCalendar size={14} />
+                      </button>
+                      <button onClick={() => downloadResume(app._id, app.applicant?.name + "-resume")} className="btn-secondary">
+                        <FiDownload size={14} /> Resume
+                      </button>
+                      <select
+                        className="input py-2 text-sm w-auto"
+                        value={app.status}
+                        onChange={(e) => updateStatus(app._id, e.target.value)}
+                      >
+                        {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )
       ) : tab === "interviews" ? (
@@ -328,6 +510,30 @@ export default function EmployerDashboard() {
         )
       ) : (
         <div className="space-y-6">
+          <div className="card p-6">
+            <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+              <FiZap size={16} /> AI Screening insight
+            </h3>
+            {analytics?.screening?.totalScreened ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{analytics.screening.avgScore}/100</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Average match score</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{analytics.screening.strongMatches}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Strong matches (75+)</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-extrabold text-slate-900 dark:text-white">{analytics.screening.totalScreened}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Applications screened</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400 dark:text-slate-500">No screened applications yet — scores appear automatically as candidates apply.</p>
+            )}
+          </div>
+
           <div className="card p-6">
             <h3 className="font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
               <FiBarChart2 size={16} /> Application pipeline

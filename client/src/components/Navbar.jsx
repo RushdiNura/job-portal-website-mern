@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { FiMenu, FiX, FiBriefcase, FiBell, FiUser, FiLogOut, FiMessageSquare, FiSun, FiMoon, FiShield } from "react-icons/fi";
+import { FiMenu, FiX, FiBriefcase, FiUser, FiLogOut, FiMessageSquare, FiSun, FiMoon, FiShield, FiDatabase } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
+import NotificationBell from "./NotificationBell.jsx";
 
 const navLinkClass = ({ isActive }) =>
   `px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -40,6 +41,7 @@ export default function Navbar() {
           <NavLink to="/" end className={navLinkClass}>Home</NavLink>
           <NavLink to="/jobs" className={navLinkClass}>Find Jobs</NavLink>
           {user && <NavLink to={dashboardPath} className={navLinkClass}>Dashboard</NavLink>}
+          {user?.role === "employer" && <NavLink to="/employer/talent" className={navLinkClass}>Talent Database</NavLink>}
           {user && user.role !== "admin" && <NavLink to="/messages" className={navLinkClass}>Messages</NavLink>}
           {user?.role === "admin" && <NavLink to="/admin/dashboard" className={navLinkClass}>Admin</NavLink>}
         </div>
@@ -54,6 +56,7 @@ export default function Navbar() {
           </button>
           {user ? (
             <>
+              {user.role !== "admin" && <NotificationBell />}
               {user.role !== "admin" && (
                 <Link to="/messages" className="p-2.5 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-primary-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-primary-400 transition" aria-label="Messages">
                   <FiMessageSquare size={18} />
@@ -75,6 +78,7 @@ export default function Navbar() {
         </div>
 
         <div className="flex md:hidden items-center gap-1">
+          {user && user.role !== "admin" && <NotificationBell />}
           <button
             onClick={toggleTheme}
             aria-label="Toggle dark mode"
@@ -97,6 +101,11 @@ export default function Navbar() {
           <NavLink to="/" end className={navLinkClass} onClick={() => setOpen(false)}>Home</NavLink>
           <NavLink to="/jobs" className={navLinkClass} onClick={() => setOpen(false)}>Find Jobs</NavLink>
           {user && <NavLink to={dashboardPath} className={navLinkClass} onClick={() => setOpen(false)}>Dashboard</NavLink>}
+          {user?.role === "employer" && (
+            <NavLink to="/employer/talent" className={navLinkClass} onClick={() => setOpen(false)}>
+              <span className="inline-flex items-center gap-1.5"><FiDatabase size={15} /> Talent Database</span>
+            </NavLink>
+          )}
           {user && user.role !== "admin" && (
             <NavLink to="/messages" className={navLinkClass} onClick={() => setOpen(false)}>
               <span className="inline-flex items-center gap-1.5"><FiMessageSquare size={15} /> Messages</span>

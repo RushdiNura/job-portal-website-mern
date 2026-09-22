@@ -15,6 +15,7 @@ import SeekerDashboard from "./pages/SeekerDashboard.jsx";
 import EmployerDashboard from "./pages/EmployerDashboard.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import Messages from "./pages/Messages.jsx";
+import TalentDatabase from "./pages/TalentDatabase.jsx";
 import Profile from "./pages/Profile.jsx";
 import NotFound from "./pages/NotFound.jsx";
 
@@ -45,6 +46,14 @@ export default function App() {
             element={
               <ProtectedRoute role="employer">
                 <EmployerDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employer/talent"
+            element={
+              <ProtectedRoute role="employer">
+                <TalentDatabase />
               </ProtectedRoute>
             }
           />

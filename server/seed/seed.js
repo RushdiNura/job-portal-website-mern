@@ -11,6 +11,9 @@ import Conversation from "../models/Conversation.js";
 import Message from "../models/Message.js";
 import JobEvent from "../models/JobEvent.js";
 
+import TalentPoolEntry from "../models/TalentPoolEntry.js";
+import { screenApplication } from "../utils/screening.js";
+
 dotenv.config();
 
 const employers = [
@@ -20,9 +23,9 @@ const employers = [
 ];
 
 const seekers = [
-  { name: "Jordan Lee", email: "seeker1@demo.com", headline: "Frontend Developer", skills: ["React", "JavaScript", "CSS"] },
-  { name: "Sam Patel", email: "seeker2@demo.com", headline: "Backend Engineer", skills: ["Node.js", "MongoDB", "Express"] },
-  { name: "Taylor Brooks", email: "seeker3@demo.com", headline: "Full-Stack Developer", skills: ["React", "Node.js", "AWS"] },
+  { name: "Jordan Lee", email: "seeker1@demo.com", headline: "Frontend Developer", skills: ["React", "JavaScript", "CSS"], experienceLevel: "1-2 Years", availability: "Immediately", discoverable: true },
+  { name: "Sam Patel", email: "seeker2@demo.com", headline: "Backend Engineer", skills: ["Node.js", "MongoDB", "Express"], experienceLevel: "3-5 Years", availability: "2 Weeks Notice", discoverable: true },
+  { name: "Taylor Brooks", email: "seeker3@demo.com", headline: "Full-Stack Developer", skills: ["React", "Node.js", "AWS"], experienceLevel: "5+ Years", availability: "1 Month Notice", discoverable: false },
 ];
 
 const jobTemplates = [
@@ -44,6 +47,7 @@ const destroyData = async () => {
   await Message.deleteMany();
   await Conversation.deleteMany();
   await JobEvent.deleteMany();
+  await TalentPoolEntry.deleteMany();
   await Application.deleteMany();
   await Job.deleteMany();
   await Company.deleteMany();
@@ -58,6 +62,7 @@ const importData = async () => {
   await Message.deleteMany();
   await Conversation.deleteMany();
   await JobEvent.deleteMany();
+  await TalentPoolEntry.deleteMany();
   await Application.deleteMany();
   await Job.deleteMany();
   await Company.deleteMany();
@@ -98,6 +103,9 @@ const importData = async () => {
       headline: s.headline,
       skills: s.skills,
       location: "Remote",
+      experienceLevel: s.experienceLevel,
+      availability: s.availability,
+      discoverable: s.discoverable,
     });
     createdSeekers.push(user);
   }
@@ -125,7 +133,12 @@ const importData = async () => {
     createdJobs.push(job);
   }
 
-  // Create a few sample applications
+  // Create a few sample applications, screened with the same engine real
+  // applications go through - not hand-picked fake scores.
+  const app1Screening = await screenApplication({
+    job: createdJobs[0], candidate: createdSeekers[0],
+    coverLetter: "I'm excited to apply for this frontend role - React is my daily driver.",
+  });
   const app1 = await Application.create({
     job: createdJobs[0]._id,
     applicant: createdSeekers[0]._id,
@@ -135,10 +148,15 @@ const importData = async () => {
     coverLetter: "I'm excited to apply for this frontend role - React is my daily driver.",
     status: "Under Review",
     statusHistory: [{ status: "Applied" }, { status: "Under Review" }],
+    screening: app1Screening,
   });
   createdJobs[0].applicantsCount += 1;
   await createdJobs[0].save();
 
+  const app2Screening = await screenApplication({
+    job: createdJobs[1], candidate: createdSeekers[1],
+    coverLetter: "Backend systems and API design are what I love working on.",
+  });
   const app2 = await Application.create({
     job: createdJobs[1]._id,
     applicant: createdSeekers[1]._id,
@@ -148,9 +166,20 @@ const importData = async () => {
     coverLetter: "Backend systems and API design are what I love working on.",
     status: "Applied",
     statusHistory: [{ status: "Applied" }],
+    screening: app2Screening,
   });
   createdJobs[1].applicantsCount += 1;
   await createdJobs[1].save();
+
+  // Sample talent pool entry - shows the CRM-style saved-candidate flow with
+  // a real candidate who has opted into the talent database.
+  await TalentPoolEntry.create({
+    employer: createdJobs[1].employer,
+    candidate: createdSeekers[0]._id,
+    tags: ["Referral", "Frontend"],
+    notes: "Met at a meetup, strong React background. Worth a look for future frontend roles.",
+    stage: "Prospect",
+  });
 
   // Sample interview for app1 (also flips its status, mirroring what the
   // interview-scheduling endpoint does in real usage)

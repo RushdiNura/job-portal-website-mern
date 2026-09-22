@@ -24,6 +24,22 @@ const userSchema = new mongoose.Schema(
     preferredLocation: { type: String, default: "" },
     remotePreference: { type: String, enum: ["any", "remote", "hybrid", "onsite"], default: "any" },
 
+    // Talent Database fields (seekers only). A candidate only appears in the
+    // employer-facing talent search when discoverable=true - this is an
+    // explicit opt-in, never a default-on dark pattern. Non-discoverable
+    // candidates remain fully visible to employers they've actually applied to.
+    discoverable: { type: Boolean, default: false },
+    experienceLevel: {
+      type: String,
+      enum: ["Entry Level", "1-2 Years", "3-5 Years", "5+ Years", "Senior"],
+      default: "Entry Level",
+    },
+    availability: {
+      type: String,
+      enum: ["Immediately", "2 Weeks Notice", "1 Month Notice", "Not Looking"],
+      default: "Immediately",
+    },
+
     notificationPrefs: {
       email: { type: Boolean, default: true },
       push: { type: Boolean, default: true },
@@ -64,5 +80,10 @@ userSchema.methods.toSafeObject = function () {
   delete obj.resetPasswordExpire;
   return obj;
 };
+
+// Powers talent-database search: keyword search across skills/headline for
+// discoverable candidates, plus a compound index for the common filter combo.
+userSchema.index({ skills: "text", headline: "text" });
+userSchema.index({ role: 1, discoverable: 1, experienceLevel: 1 });
 
 export default mongoose.model("User", userSchema);

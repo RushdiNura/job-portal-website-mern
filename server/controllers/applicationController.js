@@ -5,6 +5,7 @@ import Job from "../models/Job.js";
 import Notification from "../models/Notification.js";
 import sendEmail from "../utils/sendEmail.js";
 import { recordEvent } from "../utils/analytics.js";
+import { screenApplication } from "../utils/screening.js";
 
 // @desc  Apply for a job (with resume upload)
 // @route POST /api/applications/:jobId
@@ -40,14 +41,23 @@ export const applyForJob = asyncHandler(async (req, res) => {
     throw new Error("A resume is required. Upload one or add it to your profile first.");
   }
 
+  const coverLetter = req.body.coverLetter || "";
+
+  // AI Screening runs synchronously at apply-time so the employer sees a
+  // score the moment the application lands - this is deliberate: screening
+  // is core to the product, not a background afterthought. It never blocks
+  // or fails the application itself (see screenApplication's own try/catch).
+  const screening = await screenApplication({ job, candidate: req.user, coverLetter });
+
   const application = await Application.create({
     job: job._id,
     applicant: req.user._id,
     employer: job.employer,
     resumeUrl,
     resumeFileName,
-    coverLetter: req.body.coverLetter || "",
+    coverLetter,
     statusHistory: [{ status: "Applied" }],
+    screening,
   });
 
   job.applicantsCount += 1;
@@ -105,9 +115,11 @@ export const getApplicantsForJob = asyncHandler(async (req, res) => {
     throw new Error("You are not authorized to view these applicants");
   }
 
+  const sort = req.query.sort === "score" ? { "screening.score": -1 } : { createdAt: -1 };
+
   const applications = await Application.find({ job: job._id })
-    .populate("applicant", "name email phone location skills headline resumeUrl")
-    .sort({ createdAt: -1 });
+    .populate("applicant", "name email phone location skills headline resumeUrl experienceLevel availability")
+    .sort(sort);
 
   res.json({ success: true, applications });
 });
@@ -116,12 +128,38 @@ export const getApplicantsForJob = asyncHandler(async (req, res) => {
 // @route GET /api/applications/employer/all
 // @access Private/Employer
 export const getAllApplicantsForEmployer = asyncHandler(async (req, res) => {
+  const sort = req.query.sort === "score" ? { "screening.score": -1 } : { createdAt: -1 };
+
   const applications = await Application.find({ employer: req.user._id })
-    .populate("applicant", "name email phone skills headline resumeUrl")
+    .populate("applicant", "name email phone skills headline resumeUrl experienceLevel availability")
     .populate("job", "title location type")
-    .sort({ createdAt: -1 });
+    .sort(sort);
 
   res.json({ success: true, applications });
+});
+
+// @desc  Re-run AI screening for an application (e.g. after the candidate updated their resume)
+// @route POST /api/applications/:id/rescreen
+// @access Private/Employer
+export const rescreenApplication = asyncHandler(async (req, res) => {
+  const application = await Application.findById(req.params.id).populate("applicant").populate("job");
+  if (!application) {
+    res.status(404);
+    throw new Error("Application not found");
+  }
+  if (application.employer.toString() !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error("You are not authorized to re-screen this application");
+  }
+
+  application.screening = await screenApplication({
+    job: application.job,
+    candidate: application.applicant,
+    coverLetter: application.coverLetter,
+  });
+  await application.save();
+
+  res.json({ success: true, application });
 });
 
 // @desc  Update application status (employer)

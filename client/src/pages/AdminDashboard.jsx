@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { FiUsers, FiBriefcase, FiFileText, FiCheckCircle, FiSearch, FiShield } from "react-icons/fi";
+import { FiUsers, FiBriefcase, FiFileText, FiCheckCircle, FiSearch, FiShield, FiSlash } from "react-icons/fi";
 import api, { getErrorMessage } from "../services/api.js";
 import StatusBadge from "../components/StatusBadge.jsx";
+import Modal from "../components/Modal.jsx";
 import { TextSkeleton } from "../components/Skeleton.jsx";
 
 export default function AdminDashboard() {
@@ -12,6 +13,7 @@ export default function AdminDashboard() {
   const [jobs, setJobs] = useState([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deactivateTarget, setDeactivateTarget] = useState(null);
 
   const loadOverview = async () => {
     try {
@@ -50,9 +52,27 @@ export default function AdminDashboard() {
   }, []);
 
   const toggleUserStatus = async (userId, isActive) => {
+    // Deactivation is destructive (locks the user out immediately) - confirm first.
+    // Re-activation is reversible and low-risk, so it proceeds directly.
+    if (isActive) {
+      setDeactivateTarget(users.find((u) => u._id === userId));
+      return;
+    }
     try {
-      await api.put(`/admin/users/${userId}/status`, { isActive: !isActive });
-      toast.success(!isActive ? "User activated" : "User deactivated");
+      await api.put(`/admin/users/${userId}/status`, { isActive: true });
+      toast.success("User activated");
+      loadUsers(query);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  const confirmDeactivate = async () => {
+    const userId = deactivateTarget._id;
+    setDeactivateTarget(null);
+    try {
+      await api.put(`/admin/users/${userId}/status`, { isActive: false });
+      toast.success("User deactivated");
       loadUsers(query);
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -222,6 +242,22 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={!!deactivateTarget}
+        onClose={() => setDeactivateTarget(null)}
+        title="Deactivate this account?"
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setDeactivateTarget(null)}>Cancel</button>
+            <button className="btn-danger" onClick={confirmDeactivate}><FiSlash size={14} /> Deactivate</button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          <strong>{deactivateTarget?.name}</strong> ({deactivateTarget?.email}) will be logged out immediately and won't be able to sign back in until reactivated. Their data is not deleted.
+        </p>
+      </Modal>
     </div>
   );
 }
